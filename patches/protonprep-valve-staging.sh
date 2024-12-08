@@ -8,7 +8,9 @@
 
     pushd dxvk
     git reset --hard HEAD
-    git clean -xdf
+    git clean
+    echo "DXVK: disable VK_KHR_present_wait"
+    patch -Np1 < ../patches/proton/65-disable-present-wait-nvidia-dxvk.patch
     #echo "DXVK: -Nvidia Reflex- Add NV low latency support"
     #pushd include/vulkan; git pull; git checkout bbe0f575ebd6098369f0ac6c6a43532732ed0ba6; popd
     #patch -Np1 < ../patches/proton/80-nv_low_latency_dxvk.patch
@@ -17,7 +19,8 @@
     pushd vkd3d-proton
     git reset --hard HEAD
     git clean -xdf
-    
+    echo "VKD3D-PROTON: disable VK_KHR_present_wait"
+    patch -Np1 < ../patches/proton/66-disable-present-wait-nvidia-vkd3d.patch
     #echo "VKD3D-PROTON: -Nvidia Reflex- Add NV low latency support"
     #pushd khronos/Vulkan-Headers; git pull; git checkout bbe0f575ebd6098369f0ac6c6a43532732ed0ba6; popd
     #patch -Np1 < ../patches/proton/81-nv_low_latency_vkd3d_proton.patch
