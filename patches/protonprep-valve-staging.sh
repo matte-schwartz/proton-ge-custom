@@ -532,6 +532,11 @@ apply_all_in_dir() {
     echo "WINE: -HOTFIX- Add Bluetooth LE GATT and WinRT BLE support"
     apply_all_in_dir "../patches/wine-hotfixes/bluetooth-le/"
 
+    # Star Citizen (native Vulkan renderer + SteamVR/OpenXR) fixes. Applied last so
+    # their context reflects all preceding wine patches.
+    echo "WINE: -CUSTOM- Star Citizen SteamVR/OpenXR + DLSS fixes"
+    apply_all_in_dir "../patches/wine-hotfixes/star-citizen/"
+
     echo "WINE: RUN AUTOCONF TOOLS/MAKE_REQUESTS"
     autoreconf -f
     ./tools/make_requests

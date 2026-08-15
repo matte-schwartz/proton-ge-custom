@@ -1,0 +1,33 @@
+From 445e644a9c30a5088b8fd839d71a2b1b1b3ed1bc Mon Sep 17 00:00:00 2001
+From: Matthew Schwartz <matthew.schwartz@linux.dev>
+Date: Fri, 14 Aug 2026 18:46:09 -0700
+Subject: [PATCH 3/3] winevulkan: Export the debug utils and debug report entry
+ points.
+
+The Khronos loader exports the VK_EXT_debug_utils and VK_EXT_debug_report
+commands from vulkan-1.dll, and some applications resolve them with
+GetProcAddress. winevulkan does not export them, so those lookups fail.
+
+Add both extensions to CORE_EXTENSIONS so their commands are emitted into the
+spec files.
+---
+ dlls/winevulkan/make_vulkan | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/dlls/winevulkan/make_vulkan b/dlls/winevulkan/make_vulkan
+index f22bb37..8138cea 100644
+--- a/dlls/winevulkan/make_vulkan
++++ b/dlls/winevulkan/make_vulkan
+@@ -154,6 +154,12 @@ CORE_EXTENSIONS = [
+     "VK_KHR_surface",
+     "VK_KHR_swapchain",
+     "VK_KHR_win32_surface",
++    # The Khronos Windows loader statically exports the debug utils/report
++    # entry points from vulkan-1.dll. Some apps (e.g. Star Citizen) resolve
++    # them with GetProcAddress and call the result without a NULL check, so
++    # winevulkan/vulkan-1 must export them too or those apps crash.
++    "VK_EXT_debug_utils",
++    "VK_EXT_debug_report",
+ ]
+ 
+ # Some experimental extensions are used by shipping applications so their API is extremely unlikely

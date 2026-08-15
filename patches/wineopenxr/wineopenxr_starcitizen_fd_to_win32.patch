@@ -1,0 +1,85 @@
+From 86f4b4092f7826626f401e748842497d89f1fd07 Mon Sep 17 00:00:00 2001
+From: Matthew Schwartz <matthew.schwartz@linux.dev>
+Date: Fri, 14 Aug 2026 18:46:09 -0700
+Subject: [PATCH] wineopenxr: Map the fd device extensions to their win32
+ variants.
+
+ensure_vr_registry_from_xr() writes the runtime's required Vulkan device
+extensions to the PCIID registry value using the host fd names. vkd3d-proton
+reads that value as a PE client and only accepts the win32 variants, so D3D12
+device creation fails while SteamVR is running.
+
+Translate the external memory, semaphore and fence fd extensions to their
+win32 names before writing the value, as vrclient's map_device_extensions()
+already does.
+---
+ openxr_loader.c | 48 +++++++++++++++++++++++++++++++++++++++++++++++-
+ 1 file changed, 47 insertions(+), 1 deletion(-)
+
+diff --git a/openxr_loader.c b/openxr_loader.c
+index 1079bc6..62d8efb 100644
+--- a/openxr_loader.c
++++ b/openxr_loader.c
+@@ -74,6 +74,48 @@ static int has_surface_token(const char *s, size_t n)
+     return 0;
+ }
+ 
++/* vkd3d-proton/DXVK read the PCIID device-extension list as PE (Win32) clients,
++ * which winevulkan only exposes under the *_win32 names (the *_fd variants are
++ * host-only). Map them here to match vrclient's map_device_extensions(), otherwise
++ * vkd3d_check_extensions() rejects the raw *_fd names and D3D12 device creation
++ * fails whenever SteamVR is running. */
++static char *map_xr_dev_exts_to_win32(const char *in)
++{
++    static const struct { const char *fd; const char *win32; } map[] = {
++        { "VK_KHR_external_memory_fd",    "VK_KHR_external_memory_win32" },
++        { "VK_KHR_external_semaphore_fd", "VK_KHR_external_semaphore_win32" },
++        { "VK_KHR_external_fence_fd",     "VK_KHR_external_fence_win32" },
++    };
++    char *out = malloc(strlen(in) + 1 + sizeof(map) / sizeof(map[0]) * 4);
++    const char *p = in;
++    char *dst;
++
++    if (!out) return NULL;
++    dst = out;
++    while (*p)
++    {
++        const char *end = strchr(p, ' ');
++        size_t len = end ? (size_t)(end - p) : strlen(p);
++        const char *rep = NULL;
++        size_t i, rlen = len;
++
++        for (i = 0; i < sizeof(map) / sizeof(map[0]); ++i)
++            if (len == strlen(map[i].fd) && !memcmp(p, map[i].fd, len))
++            {
++                rep = map[i].win32;
++                rlen = strlen(map[i].win32);
++                break;
++            }
++        if (dst != out) *dst++ = ' ';
++        memcpy(dst, rep ? rep : p, rlen);
++        dst += rlen;
++        if (!end) break;
++        p = end + 1;
++    }
++    *dst = 0;
++    return out;
++}
++
+ static void ensure_vr_registry_from_xr(void)
+ {
+     HKEY vr_key;
+@@ -110,8 +152,12 @@ static void ensure_vr_registry_from_xr(void)
+     /* Set per-device PCIID mapping to XR device extensions. */
+     if (g_device_extensions && g_physdev_vid && g_physdev_pid)
+     {
++        char *mapped = map_xr_dev_exts_to_win32(g_device_extensions);
++        const char *value = mapped ? mapped : g_device_extensions;
++
+         snprintf(name, sizeof(name), "PCIID:%04x:%04x", (unsigned)g_physdev_vid, (unsigned)g_physdev_pid);
+-        RegSetValueExA(vr_key, name, 0, REG_SZ, (BYTE *)g_device_extensions, (DWORD)strlen(g_device_extensions) + 1);
++        RegSetValueExA(vr_key, name, 0, REG_SZ, (BYTE *)value, (DWORD)strlen(value) + 1);
++        free(mapped);
+     }
+ 
+     /* Derive OpenVR instance extension string from XR instance extensions.

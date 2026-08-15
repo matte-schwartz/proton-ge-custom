@@ -1,0 +1,55 @@
+From 9ce15a3068ec254908711c6a0fb6a9cfc7e7f155 Mon Sep 17 00:00:00 2001
+From: Matthew Schwartz <matthew.schwartz@linux.dev>
+Date: Sat, 15 Aug 2026 13:42:09 -0700
+Subject: [PATCH] win32u: Enable the debug utils extensions on the host
+ instance.
+
+Applications may resolve vkCreateDebugUtilsMessengerEXT or
+vkCreateDebugReportCallbackEXT through vkGetInstanceProcAddr and call the
+result without checking for NULL, relying on the loader handing out a valid
+pointer even though VK_EXT_debug_utils was never enabled at instance creation.
+winevulkan asks the host loader instead, which returns NULL in that case, and
+the application crashes.
+
+Enable VK_EXT_debug_utils and VK_EXT_debug_report on the host instance whenever
+the host supports them. The object tracking rbtree stays keyed on the
+extensions the application actually requested, so applications that do not use
+the debug extensions keep paying nothing for it, and the handle lookup returns
+zero when tracking is off, which the winevulkan callback wrapper already
+handles by falling back to a transient handle.
+---
+ dlls/win32u/vulkan.c | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/dlls/win32u/vulkan.c b/dlls/win32u/vulkan.c
+index e85c9d2a0aa..5800897f820 100644
+--- a/dlls/win32u/vulkan.c
++++ b/dlls/win32u/vulkan.c
+@@ -404,6 +404,8 @@ static uint64_t vulkan_instance_client_handle_from_host( struct vulkan_instance
+     struct rb_entry *entry;
+     uint64_t result = 0;
+ 
++    if (!impl->objects.compare) return 0;
++
+     pthread_rwlock_rdlock( &impl->objects_lock );
+     if ((entry = rb_get( &impl->objects, &host_handle )))
+     {
+@@ -499,6 +501,18 @@ static VkResult convert_instance_create_info( struct mempool *pool, VkInstanceCr
+         pthread_rwlock_init( &instance->objects_lock, NULL );
+     }
+ 
++    /* Some applications resolve vkCreateDebugUtilsMessengerEXT or
++     * vkCreateDebugReportCallbackEXT with vkGetInstanceProcAddr and call the
++     * result without a NULL check, without ever enabling the corresponding
++     * instance extension. The Windows loader hands out a valid pointer either
++     * way, so enable the extensions on the host instance to match. Object
++     * tracking above stays keyed on what the application actually requested,
++     * so this costs nothing for the applications that get it right. */
++    if (vulkan_funcs.host_extensions.has_VK_EXT_debug_utils)
++        instance->obj.extensions.has_VK_EXT_debug_utils = 1;
++    if (vulkan_funcs.host_extensions.has_VK_EXT_debug_report)
++        instance->obj.extensions.has_VK_EXT_debug_report = 1;
++
+     if (instance->obj.extensions.has_VK_KHR_win32_surface && vulkan_funcs.host_extensions.has_VK_EXT_surface_maintenance1)
+         instance->obj.extensions.has_VK_EXT_surface_maintenance1 = 1;
+     if (vulkan_funcs.host_extensions.has_VK_KHR_get_physical_device_properties2)

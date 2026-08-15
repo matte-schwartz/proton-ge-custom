@@ -1,0 +1,42 @@
+From fc16c07b604522f0bf1fa788034648381d854331 Mon Sep 17 00:00:00 2001
+From: Matthew Schwartz <matthew.schwartz@linux.dev>
+Date: Fri, 14 Aug 2026 18:46:09 -0700
+Subject: [PATCH 2/3] win32u: Disable the NVX device extensions by default.
+
+VK_NVX_binary_import and VK_NVX_image_view_handle make the NVIDIA driver
+initialize CUDA interop during vkCreateDevice, which fails under Wine because
+libcuda's mmap probes are rejected, so device creation returns
+VK_ERROR_INITIALIZATION_FAILED. Applications that create the device directly,
+such as Star Citizen's OpenXR renderer, have no fallback and abort.
+
+Strip both extensions from the device unless PROTON_KEEP_NVX is set.
+---
+ dlls/win32u/vulkan.c | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/dlls/win32u/vulkan.c b/dlls/win32u/vulkan.c
+index 3e04a70..53db94b 100644
+--- a/dlls/win32u/vulkan.c
++++ b/dlls/win32u/vulkan.c
+@@ -885,6 +885,21 @@ static VkResult convert_device_create_info( struct vulkan_physical_device *physi
+         physical_device->extensions.has_VK_EXT_swapchain_maintenance1)
+         device->extensions.has_VK_EXT_swapchain_maintenance1 = 1;
+ 
++    /* VK_NVX_binary_import and VK_NVX_image_view_handle make the NVIDIA driver
++     * initialize CUDA interop during vkCreateDevice, which fails under Wine
++     * (libcuda's mmap probes are rejected) with VK_ERROR_INITIALIZATION_FAILED.
++     * Applications that create the device directly, such as Star Citizen's
++     * OpenXR renderer, have no fallback and abort. Strip them unless
++     * PROTON_KEEP_NVX is set. */
++    {
++        const char *keep_nvx = getenv( "PROTON_KEEP_NVX" );
++        if (!(keep_nvx && keep_nvx[0] == '1'))
++        {
++            device->extensions.has_VK_NVX_binary_import = 0;
++            device->extensions.has_VK_NVX_image_view_handle = 0;
++        }
++    }
++
+     if (!(extensions = mem_alloc( pool, sizeof(device->extensions) * 8 * sizeof(*extensions) ))) return VK_ERROR_OUT_OF_HOST_MEMORY;
+ #define USE_VK_EXT(x) if (device->extensions.has_ ## x) extensions[count++] = #x;
+     ALL_VK_DEVICE_EXTS

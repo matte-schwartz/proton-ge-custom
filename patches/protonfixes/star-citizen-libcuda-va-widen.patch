@@ -1,0 +1,118 @@
+From 070a25f3d28d4d80912d8550818f46eb36d66ab2 Mon Sep 17 00:00:00 2001
+From: Matthew Schwartz <matthew.schwartz@linux.dev>
+Date: Sat, 15 Aug 2026 15:17:20 -0700
+Subject: [PATCH] patch_libcuda: Widen the 16TB VA-reservation constant and
+ stop corrupting libcuda.
+
+patch_libcuda() widens the 1TB CUDA VA-reservation bound, but drivers 595 and
+later encode a second 16TB bound as a movabs in the same code path and select
+that one, so on current drivers the patch is a no-op and CUDA initialization
+still fails. Widen the 16TB bound as well. Drivers up to 590 do not contain
+that constant at all, so the extra replacement is inert there.
+
+While here, match on bytes instead of on binary_data.hex(). A replace over the
+hex string also matches at odd nibble offsets, which rewrites halves of two
+unrelated adjacent instructions, and it matches copies of the constant sitting
+in .rodata. Restricting the search to .text and matching whole bytes changes
+exactly the two movabs operands that are meant to change.
+
+Measured over nvidia-utils 550.90.07, 580.119.02, 590.48.01, 595.71.05 and
+610.57.04, bytes modified in libcuda.so:
+
+  driver       before   after
+  550.90.07         2       2
+  580.119.02        2       2
+  590.48.01         2       2
+  595.71.05        11       2
+  610.57.04         7       2
+---
+ util.py | 68 +++++++++++++++++++++++++++++++++++++++++++++++++++++----
+ 1 file changed, 64 insertions(+), 4 deletions(-)
+
+diff --git a/util.py b/util.py
+index ea1d730..d98a3e9 100644
+--- a/util.py
++++ b/util.py
+@@ -516,6 +516,37 @@ def wineexe_override(exe: str, dtype: OverrideOrder) -> None:
+     _winepe_override(target=exe, filetype='exe', dtype=dtype)
+ 
+ 
++def _elf_text_range(data: bytes) -> tuple[int, int]:
++    """Return the file offsets bounding the .text section of a 64-bit ELF object.
++
++    Raises ValueError if the object is not a 64-bit ELF or has no .text section.
++    """
++    if data[:4] != b'\x7fELF' or data[4] != 2:
++        raise ValueError('not a 64-bit ELF object')
++
++    e_shoff = int.from_bytes(data[0x28:0x30], 'little')
++    e_shentsize = int.from_bytes(data[0x3A:0x3C], 'little')
++    e_shnum = int.from_bytes(data[0x3C:0x3E], 'little')
++    e_shstrndx = int.from_bytes(data[0x3E:0x40], 'little')
++
++    def header(idx: int) -> tuple[int, int, int]:
++        off = e_shoff + idx * e_shentsize
++        return (
++            int.from_bytes(data[off : off + 4], 'little'),  # sh_name
++            int.from_bytes(data[off + 0x18 : off + 0x20], 'little'),  # sh_offset
++            int.from_bytes(data[off + 0x20 : off + 0x28], 'little'),  # sh_size
++        )
++
++    strtab = header(e_shstrndx)[1]
++    for idx in range(e_shnum):
++        sh_name, sh_offset, sh_size = header(idx)
++        end = data.index(b'\x00', strtab + sh_name)
++        if data[strtab + sh_name : end] == b'.text':
++            return sh_offset, sh_offset + sh_size
++
++    raise ValueError('no .text section')
++
++
+ def patch_libcuda() -> bool:
+     """Patches libcuda to work around games that crash when initializing libcuda and are using DLSS.
+ 
+@@ -583,11 +614,40 @@ def patch_libcuda() -> bool:
+         # DLSS (Deep Learning Super Sampling) functionality.
+         # By modifying libcuda.so to increase the allowed memory allocation area, we can prevent these allocation
+         # failures without disabling the extensions, thus enabling DLSS to work properly.
+-        # The hex replacement changes the memory allocation constraints within libcuda.so.
++        # The replacement changes the memory allocation constraints within libcuda.so.
++        #
++        # Drivers up to 590 encode a single 1TB bound. 595 and later add a 16TB bound
++        # as a second movabs in the same code path and select that one, so widening
++        # only the 1TB bound leaves current drivers unpatched.
++        #
++        # Match on bytes rather than on binary_data.hex(). A replace over the hex
++        # string also matches at odd nibble offsets, rewriting halves of two unrelated
++        # adjacent instructions, and matches copies of the constant that appear in
++        # .rodata. On 595.71.05 that is 11 modified bytes where only 1 is intended.
++        # Restricting to .text and matching whole bytes touches exactly the two
++        # movabs operands on every driver from 550 through 610.
++        one_tb = bytes.fromhex('000000f8ff000000')  # movabs $0xfff8000000, %reg
++        sixteen_tb = bytes.fromhex('000000f8ff0f0000')  # movabs $0xffff8000000, %reg
++        widened = bytes.fromhex('000000f8ffff0000')  # movabs $0xfffff8000000, %reg
++
++        try:
++            text_start, text_end = _elf_text_range(binary_data)
++        except ValueError as e:
++            log.crit(f'Unable to locate .text in libcuda.so: {e}')
++            return False
++
++        text = binary_data[text_start:text_end]
++        sites = text.count(one_tb) + text.count(sixteen_tb)
++        if sites:
++            log.info(f'Widening {sites} CUDA VA-reservation constant(s) in libcuda.so')
++        else:
++            log.warn(
++                'No CUDA VA-reservation constants found in libcuda.so, '
++                'the preloaded copy will be unmodified.'
++            )
+ 
+-        hex_data = binary_data.hex()
+-        hex_data = hex_data.replace('000000f8ff000000', '000000f8ffff0000')
+-        patched_binary_data = bytes.fromhex(hex_data)
++        text = text.replace(one_tb, widened).replace(sixteen_tb, widened)
++        patched_binary_data = binary_data[:text_start] + text + binary_data[text_end:]
+ 
+         try:
+             patched_library.write_bytes(patched_binary_data)
