@@ -153,6 +153,7 @@ apply_all_in_dir() {
     -W dbghelp-Debug_Symbols \
     -W version-VerQueryValue \
     -W mf_http_support \
+    -W ntdll-Serial_Port_Detection \
     -W server-PeekMessage \
     -W msxml3-FreeThreadedXMLHTTP60 \
     -W ntdll-ForceBottomUpAlloc \
@@ -187,6 +188,10 @@ apply_all_in_dir() {
     # dbghelp-Debug_Symbols - Ubisoft Connect games (3/3 I had installed and could test) will crash inside pe_load_debug_info function with this enabled
     # version-VerQueryValue - just a test and doesn't apply cleanly. not relevant for gaming
     # mf_http_support - disabled in favor of custom ffmpeg backend video playback solution
+    # ntdll-Serial_Port_Detection - its mountmgr probe opens every /dev/ttyS*, ttyUSB*, ttyACM* without O_NOCTTY
+    #   from winedevice.exe (a session leader without a terminal): the first one becomes its controlling tty and
+    #   is hung up when the prefix shuts down, breaking the program that had it open (e.g. a Sinden lightgun's
+    #   serial link to its driver: the gun stops working after each game)
 
     # server-PeekMessage - already applied
     # msxml3-FreeThreadedXMLHTTP60 - already applied
