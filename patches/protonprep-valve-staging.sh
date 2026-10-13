@@ -366,6 +366,9 @@ apply_all_in_dir() {
     echo "WINE: -HOTFIX- Fall back when GnuTLS lacks NO_SHUFFLE_EXTENSIONS"
     apply_patch "../patches/wine-hotfixes/pending/secur32-fallback-without-no-shuffle-extensions.patch"
 
+    echo "WINE: -HOTFIX- Backport schannel SECBUFFER_MISSING size fix for incomplete TLS records (upstream 9aee0e71, 35b1e7eb)"
+    apply_patch "../patches/wine-hotfixes/pending/secur32-schannel-fix-incomplete-message-missing-size.patch"
+
     echo "WINE: -HOTFIX- Preserve driver-reported OpenGL GPU identity"
     apply_patch "../patches/wine-hotfixes/pending/wined3d-preserve-runtime-opengl-gpu-description.patch"
 
