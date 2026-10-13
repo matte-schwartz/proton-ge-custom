@@ -35,6 +35,8 @@ apply_all_in_dir() {
     # Swapchain colorspace instance-extension support is upstream in DXVK 3c40ca1b.
     # Do not advertise HDR when Wine reports an SDR output, even with DXVK_HDR=1.
     apply_patch "../patches/dxvk/dxgi-respect-output-hdr-state.patch"
+    # StarCraft II: avoid GPU hangs with D3D9 constant buffer streaming (#790).
+    apply_patch "../patches/dxvk/starcraft2-disable-constant-buffer-streaming.patch"
     popd
 
     pushd vkd3d-proton
@@ -374,6 +376,12 @@ apply_all_in_dir() {
 
     echo "WINE: -HOTFIX- Keep Forza background windows unmapped on wlroots"
     apply_patch "../patches/wine-hotfixes/pending/winex11-keep-forza-background-windows-unmapped-on-wlroots.patch"
+
+    echo "WINE: -HOTFIX- Reconcile unsupported minimization on xwayland-satellite"
+    apply_patch "../patches/wine-hotfixes/pending/winex11-handle-unsupported-minimization-on-satellite.patch"
+
+    echo "WINE: -HOTFIX- Do not paint off-desktop minimized frames into retained host windows"
+    apply_patch "../patches/wine-hotfixes/pending/server-clip-off-desktop-minimized-window-paint.patch"
 
     echo "WINE: -HOTFIX- Share selected cursor images across processes"
     apply_patch "../patches/wine-hotfixes/pending/win32u-share-selected-cursors-across-processes.patch"
